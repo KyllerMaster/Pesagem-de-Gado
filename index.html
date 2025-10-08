@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Painel de Pesagem de Gado</title>
+<style>
+  body { background: #0a0a0a; color: white; font-family: Arial, sans-serif; margin: 0; padding: 0; }
+  .container { max-width: 480px; margin: auto; padding: 20px; }
+  h1 { text-align: center; color: #3ef9b2; }
+  section { background: #1a1a1a; border: 1px solid #333; border-radius: 16px; padding: 15px; margin-bottom: 15px; }
+  input { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #444; background: #000; color: white; }
+  button { width: 100%; padding: 12px; margin-top: 10px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+  .green { background: #1f9d55; color: white; }
+  .gray { background: #333; color: white; }
+  .red { background: #b91c1c; color: white; }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; text-align: center; }
+  .stat p { margin: 2px 0; }
+  .stat strong { font-size: 18px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Painel de Pesagem de Gado</h1>
+
+  <section>
+    <label>Peso (kg):</label>
+    <input id="peso" type="text" placeholder="ex: 412,5" inputmode="decimal" autocapitalize="off" autocomplete="off" autocorrect="off">
+    <button class="green" id="btnAdd">Adicionar</button>
+  </section>
+
+  <section>
+    <label>Valor por @ (opcional):</label>
+    <input id="valorAt" type="text" placeholder="ex: 300,00" inputmode="decimal" autocapitalize="off" autocomplete="off" autocorrect="off">
+  </section>
+
+  <section id="resumo" style="display:none;">
+    <h3>Resumo do Lote</h3>
+    <div class="stats">
+      <div class="stat"><p>Peso Total</p><strong id="pesoTotal"></strong><p id="arrobaTotal"></p></div>
+      <div class="stat"><p>Média</p><strong id="media"></strong><p id="arrobaMedia"></p></div>
+      <div class="stat"><p>Máximo</p><strong id="maximo"></strong></div>
+      <div class="stat"><p>CV%</p><strong id="cv"></strong></div>
+    </div>
+    <p id="valorTotal" style="text-align:center;margin-top:10px;color:#3ef9b2;"></p>
+    <button class="green" id="btnShare">📤 Compartilhar no WhatsApp</button>
+    <button class="gray" id="btnCopy">📋 Copiar resumo</button>
+  </section>
+
+  <section>
+    <h3>Lista de Pesos</h3>
+    <ul id="listaPesos" style="list-style:none;padding:0;"></ul>
+    <button class="gray" id="btnRemover">Remover último</button>
+    <button class="red" id="btnLimpar">Limpar</button>
+  </section>
+
+  <footer style="text-align:center;color:#999;font-size:12px;">Funciona offline • Desenvolvido por Gilberto Junior</footer>
+</div>
+
+<script>
+const memStore = { _data: {}, getItem:k=>memStore._data[k]||null, setItem:(k,v)=>{memStore._data[k]=String(v)}, removeItem:(k)=>{delete memStore._data[k]} };
+function getStorage() {
+  try { const testKey = "__t"; localStorage.setItem(testKey, "1"); localStorage.removeItem(testKey); return localStorage; }
+  catch (_) { return memStore; }
+}
+const storage = getStorage();
+let lista = [];
+let valorAt = '';
+const pesoInput = document.getElementById('peso');
+const btnAdd = document.getElementById('btnAdd');
+const valorAtInput = document.getElementById('valorAt');
+const btnShare = document.getElementById('btnShare');
+const btnCopy = document.getElementById('btnCopy');
+const btnRemover = document.getElementById('btnRemover');
+const btnLimpar = document.getElementById('btnLimpar');
+(function load(){
+  try { lista = JSON.parse(storage.getItem('painel_gado_lista') || '[]'); } catch { lista = []; }
+  try { valorAt = storage.getItem('painel_gado_valorAt') || ''; } catch { valorAt = ''; }
+  valorAtInput.value = valorAt;
+  render();
+})();
+function parseNum(s){
+  if (typeof s !== "string") return NaN;
+  s = s.trim();
+  if (!s) return NaN;
+  const hasComma = s.includes(',');
+  const hasDot = s.includes('.');
+  if (hasComma && hasDot) s = s.replace(/\./g, '').replace(',', '.');
+  else if (hasComma) s = s.replace(',', '.');
+  const v = parseFloat(s);
+  return isNaN(v) ? NaN : v;
+}
+function salvar() {
+  try { storage.setItem('painel_gado_lista', JSON.stringify(lista)); } catch {}
+  try { storage.setItem('painel_gado_valorAt', valorAtInput.value); } catch {}
+}
+function adicionarPeso(){
+  const v = parseNum(pesoInput.value);
+  if (!isNaN(v) && v > 0) {
+    lista.push(parseFloat(v.toFixed(2)));
+    pesoInput.value = '';
+    salvar();
+    render();
+  } else {
+    alert('Digite um peso válido (ex: 412,5).');
+  }
+}
+function removerUltimo() { if(lista.length){ lista.pop(); salvar(); render(); } }
+function limparTudo() {
+  if (confirm('Tem certeza que deseja apagar todos os dados?')) {
+    lista = []; valorAtInput.value = ''; salvar(); render();
+    alert('Todos os dados foram limpos.');
+  }
+}
+function calc() {
+  if (!lista.length) return null;
+  const n = lista.length;
+  const sum = lista.reduce((a,b)=>a+b,0);
+  const mean = sum / n;
+  const max = Math.max(...lista);
+  const variance = lista.reduce((a,x)=>a+Math.pow(x-mean,2),0)/n;
+  const sd = Math.sqrt(variance);
+  const cv = mean ? (sd/mean)*100 : 0;
+  const precoAt = parseNum(valorAtInput.value);
+  const totalAt = sum/15, meanAt = mean/15;
+  const valor = !isNaN(precoAt) ? precoAt*totalAt : null;
+  return { n, sum, mean, max, sd, cv, valor, totalAt, meanAt };
+}
+function render() {
+  const ul = document.getElementById('listaPesos');
+  ul.innerHTML = '';
+  lista.forEach((p)=>{
+    const li=document.createElement('li');
+    li.textContent=p.toFixed(2)+' kg';
+    ul.appendChild(li);
+  });
+  const s=calc();
+  document.getElementById('resumo').style.display = s ? 'block' : 'none';
+  if(!s) return;
+  document.getElementById('pesoTotal').textContent=s.sum.toFixed(2)+' kg';
+  document.getElementById('arrobaTotal').textContent='('+s.totalAt.toFixed(2)+' @)';
+  document.getElementById('media').textContent=s.mean.toFixed(2)+' kg';
+  document.getElementById('arrobaMedia').textContent='('+s.meanAt.toFixed(2)+' @)';
+  document.getElementById('maximo').textContent=s.max.toFixed(2)+' kg';
+  document.getElementById('cv').textContent=s.cv.toFixed(2);
+  document.getElementById('valorTotal').textContent=s.valor!==null?'Valor Total: R$ '+s.valor.toFixed(2):'';
+}
+function resumoTexto() {
+  const s = calc();
+  if (!s) return '';
+  const valorLinha = (s.valor !== null) ? '\n💰 Valor Total: R$ '+s.valor.toFixed(2) : '';
+  return '🐄 *Relatório de Pesos - Gado* 🐄\n\n' +
+         '📋 Cabeças: '+s.n+'\n' +
+         '⚖️ Média: '+s.mean.toFixed(2)+' kg ('+s.meanAt.toFixed(2)+' @)\n' +
+         '📦 Total: '+s.sum.toFixed(2)+' kg ('+s.totalAt.toFixed(2)+' @)' +
+         valorLinha +
+         '\n\nEnviado via Painel de Pesagem Gilberto Junior';
+}
+async function compartilharWhatsApp() {
+  const texto = resumoTexto();
+  if (!texto) return alert('Adicione ao menos um peso.');
+  const url = 'https://wa.me/?text='+encodeURIComponent(texto);
+  if (navigator.share && location.protocol==='https:') {
+    try { await navigator.share({ title: 'Relatório de Pesos', text: texto }); return; } catch(e){ if(e.name!=='AbortError') console.warn(e); }
+  }
+  try { window.open(url, '_blank'); } catch(e){ try { await navigator.clipboard.writeText(texto); alert('Resumo copiado!'); } catch(_) {} }
+}
+async function copiarResumo(){
+  const texto=resumoTexto();
+  if(!texto) return alert('Nada para copiar.');
+  try{await navigator.clipboard.writeText(texto);alert('Resumo copiado!');}catch(e){alert('Não foi possível copiar.');}
+}
+btnAdd.addEventListener('click', adicionarPeso);
+btnRemover.addEventListener('click', removerUltimo);
+btnLimpar.addEventListener('click', limparTudo);
+btnShare.addEventListener('click', compartilharWhatsApp);
+btnCopy.addEventListener('click', copiarResumo);
+pesoInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ adicionarPeso(); } });
+valorAtInput.addEventListener('input', ()=>{ salvar(); render(); });
+</script>
+</body>
+</html>
